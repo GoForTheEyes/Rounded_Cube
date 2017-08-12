@@ -2,15 +2,19 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-[RequireComponent(typeof(MeshFilter),typeof(MeshRenderer))]
+[RequireComponent(typeof(MeshFilter),typeof(MeshRenderer), typeof(Rigidbody))]
 public class RoundedCube : MonoBehaviour {
 
     public int xSize, ySize, zSize;
     public int roundness;
+    public Vector3 force;
+    public bool isKinematic;
 
     private Mesh mesh;
+    private Rigidbody body;
     private Vector3[] vertices;
     private Vector3[] normals;
+    private Color32[] cubeUV;
 
     private void Awake()
     {
@@ -24,7 +28,17 @@ public class RoundedCube : MonoBehaviour {
         mesh.name = "Procedural Cube";
         CreateVertices();
         CreateTriangles();
+        CreateColliders();
+        gameObject.AddComponent<Rigidbody>();
+        body = GetComponent<Rigidbody>();
+        //eliminate mass
 
+        if (isKinematic == true)
+        {
+            body.useGravity = false;
+            body.isKinematic = true;
+        }
+        body.AddForce(force);
     }
 
     private void CreateVertices()
@@ -39,6 +53,7 @@ public class RoundedCube : MonoBehaviour {
             ) * 2;
         vertices = new Vector3[cornerVertices + edgeVertices + faceVertices];
         normals = new Vector3[vertices.Length];
+        cubeUV = new Color32[vertices.Length];
 
         int v = 0;
         //vertices
@@ -78,6 +93,47 @@ public class RoundedCube : MonoBehaviour {
         }
         mesh.vertices = vertices;
         mesh.normals = normals;
+        mesh.colors32 = cubeUV;
+    }
+
+    private void CreateColliders() { 
+        AddBoxCollider(xSize, ySize - roundness* 2, zSize - roundness* 2);
+        AddBoxCollider(xSize - roundness* 2, ySize, zSize - roundness* 2);
+        AddBoxCollider(xSize - roundness* 2, ySize - roundness* 2, zSize);
+
+        Vector3 min = Vector3.one * roundness;
+        Vector3 half = new Vector3(xSize, ySize, zSize) * 0.5f;
+        Vector3 max = new Vector3(xSize, ySize, zSize) - min;
+
+        AddCapsuleCollider(0, half.x, min.y, min.z);
+        AddCapsuleCollider(0, half.x, min.y, max.z);
+        AddCapsuleCollider(0, half.x, max.y, min.z);
+        AddCapsuleCollider(0, half.x, max.y, max.z);
+
+        AddCapsuleCollider(1, min.x, half.y, min.z);
+        AddCapsuleCollider(1, min.x, half.y, max.z);
+        AddCapsuleCollider(1, max.x, half.y, min.z);
+        AddCapsuleCollider(1, max.x, half.y, max.z);
+
+        AddCapsuleCollider(2, min.x, min.y, half.z);
+        AddCapsuleCollider(2, min.x, max.y, half.z);
+        AddCapsuleCollider(2, max.x, min.y, half.z);
+        AddCapsuleCollider(2, max.x, max.y, half.z);
+    }
+
+    private void AddBoxCollider(float x, float y, float z)
+    {
+        BoxCollider c = gameObject.AddComponent<BoxCollider>();
+        c.size = new Vector3(x, y, z);
+    }
+
+    private void AddCapsuleCollider(int direction, float x, float y, float z)
+    {
+        CapsuleCollider c = gameObject.AddComponent<CapsuleCollider>();
+        c.center = new Vector3(x, y, z);
+        c.direction = direction;
+        c.radius = roundness;
+        c.height = c.center[direction] * 2f;
     }
 
     private void SetVertex(int i, int x, int y, int z)
@@ -113,26 +169,45 @@ public class RoundedCube : MonoBehaviour {
 
         normals[i] = (vertices[i] - inner).normalized;
         vertices[i] = inner + normals[i] * roundness;
+        cubeUV[i] = new Color32((byte)x, (byte)y, (byte)z, 0);
+
     }
 
-        private void CreateTriangles()
+    private void CreateTriangles()
     {
         int quads = (xSize * ySize + xSize * zSize + ySize * zSize) * 2;
-        int[] triangles = new int[quads * 6];
+        int[] trianglesZ = new int[(xSize * ySize) * 12];
+        int[] trianglesX = new int[(ySize * zSize) * 12];
+        int[] trianglesY = new int[(xSize * zSize) * 12];
         int ring = (xSize + zSize) * 2;
-        int t = 0, v = 0;
+        int tZ = 0, tX = 0, tY = 0, v = 0;
 
         for (int y = 0; y < ySize; y++, v++)
         {
-            for (int q = 0; q < ring - 1; q++, v++)
+            for (int q = 0; q < xSize; q++, v++)
             {
-                t = SetQuad(triangles, t, v, v + 1, v + ring, v + ring + 1);
+                tZ = SetQuad(trianglesZ, tZ, v, v + 1, v + ring, v + ring + 1);
             }
-            t = SetQuad(triangles, t, v, v - ring + 1, v + ring, v + 1);
+            for (int q = 0; q < zSize; q++, v++)
+            {
+                tX = SetQuad(trianglesX, tX, v, v + 1, v + ring, v + ring + 1);
+            }
+            for (int q = 0; q < xSize; q++, v++)
+            {
+                tZ = SetQuad(trianglesZ, tZ, v, v + 1, v + ring, v + ring + 1);
+            }
+            for (int q = 0; q < zSize - 1; q++, v++)
+            {
+                tX = SetQuad(trianglesX, tX, v, v + 1, v + ring, v + ring + 1);
+            }
+            tX = SetQuad(trianglesX, tX, v, v - ring + 1, v + ring, v + 1);
         }
-        t = CreateTopFace(triangles, t, ring);
-        t = CreateBottomFace(triangles, t, ring);
-        mesh.triangles = triangles;
+        tY = CreateTopFace(trianglesY, tY, ring);
+        tY = CreateBottomFace(trianglesY, tY, ring);
+        mesh.subMeshCount = 3;
+        mesh.SetTriangles(trianglesZ, 0);
+        mesh.SetTriangles(trianglesX, 1);
+        mesh.SetTriangles(trianglesY, 2);
     }
 
 
@@ -221,21 +296,21 @@ public class RoundedCube : MonoBehaviour {
         return t;
     }
 
-    private void OnDrawGizmos()
-    {
-        if (vertices == null)
-        {
-            return;
-        }
+    //private void OnDrawGizmos()
+    //{
+    //    if (vertices == null)
+    //    {
+    //        return;
+    //    }
 
-        for (int i = 0; i < vertices.Length; i++)
-        {
-            Gizmos.color = Color.black;
-            Gizmos.DrawSphere(vertices[i], 0.1f);
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawRay(vertices[i], normals[i]);
-        }
-    }
+    //    for (int i = 0; i < vertices.Length; i++)
+    //    {
+    //        Gizmos.color = Color.black;
+    //        Gizmos.DrawSphere(vertices[i], 0.1f);
+    //        Gizmos.color = Color.yellow;
+    //        Gizmos.DrawRay(vertices[i], normals[i]);
+    //    }
+    //}
 
 
 }
